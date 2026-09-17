@@ -1,0 +1,8 @@
+langchain
+pydantic   
+langchain_chroma
+langgraph-cli[inmem]
+fastapi
+uvicorn
+langchain_huggingface
+langchain_ollama
