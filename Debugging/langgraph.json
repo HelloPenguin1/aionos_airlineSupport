@@ -4,9 +4,7 @@
         ".."
     ],
     "graphs": {
-        "initial_check": "agent.workflow:workflow"
+        "workflow": "agent.workflow:workflow"
     },
-    "env" : {
-        "env": "../.env"
-    }
+    "env": "../.env"
 }
