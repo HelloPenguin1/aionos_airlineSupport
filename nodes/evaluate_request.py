@@ -5,9 +5,10 @@ from nodes.prompts import DECISION_PROMPT
 import os
 
 llm = ChatGroq(
-    model_name="qwen/qwen3.8-27b",
+    model_name="openai/gpt-oss-120b",
     temperature=0,
-    groq_api_key=os.getenv("GROQ_API_KEY")
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    max_tokens=500
 )
 
 
@@ -21,7 +22,8 @@ def evaluate_request(state):
         policy_context=state.get("policy_context", ""),
     )
 
-    structured_llm = llm.with_structured_output(PolicyDecision)
+    structured_llm = llm.with_structured_output(PolicyDecision,
+                                                method="json_schema")
 
     result = structured_llm.invoke(prompt)
 

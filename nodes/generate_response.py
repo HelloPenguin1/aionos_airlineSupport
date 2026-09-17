@@ -4,9 +4,10 @@ from nodes.prompts import RESPONSE_PROMPT
 import os
 
 llm = ChatGroq(
-    model_name="qwen/qwen3.8-27b",
-    temperature=0,
-    groq_api_key=os.getenv("GROQ_API_KEY")
+    model_name="openai/gpt-oss-120b",
+    temperature=0.3,
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    max_tokens=300
 )
 
 

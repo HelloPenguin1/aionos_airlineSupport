@@ -24,6 +24,9 @@ def analyze_request(state):
 
     result = structured_llm.invoke(prompt)
 
+    print("REQUEST ANALYSIS:", result)
+    print("RULES:", result.rules)
+    
     return {
         "intent": result.intent,
         "requested_action": ", ".join(result.requested_actions),

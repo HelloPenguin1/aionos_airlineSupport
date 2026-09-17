@@ -17,7 +17,12 @@ def get_retriever(rules: list[str]):
         persist_directory=CHROMA_PATH
     )
 
-    return vectorstore.as_retriever(
+    print("RULES:", rules)
+    print("COLLECTION COUNT:", vectorstore._collection.count())
+    print("COLLECTION DATA:")
+    print(vectorstore._collection.get(include=["metadatas"]))
+
+    return vectorstore.as_retriever(    
         search_kwargs={
             "k": len(rules),
             "filter": {
