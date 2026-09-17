@@ -1,0 +1,12 @@
+
+{
+    "dependencies": [
+        ".."
+    ],
+    "graphs": {
+        "initial_check": "graph.workflow:workflow"
+    },
+    "env" : {
+        "env": "../.env"
+    }
+}
