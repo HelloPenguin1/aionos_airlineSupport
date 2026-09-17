@@ -1,7 +1,8 @@
 import sqlite3
+from pathlib import Path
 
-CUSTOMERS_DB = "data/customers.db"
-BOOKINGS_DB = "data/bookings.db"
+CUSTOMERS_DB = Path(__file__).parent.parent / "data" / "customers.db"
+BOOKINGS_DB  = Path(__file__).parent.parent / "data" / "bookings.db"
 
 
 def get_customer_by_pnr(pnr):

@@ -2,11 +2,13 @@ from langchain_groq import ChatGroq
 
 from nodes.structured_output import RequestAnalysis
 from nodes.prompts import REQUEST_ANALYSIS_PROMPT
-
+import os
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0
+    model_name="openai/gpt-oss-20b",
+    temperature=0,
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    max_tokens=500
 )
 
 
@@ -17,7 +19,8 @@ def analyze_request(state):
         user_message=state["user_message"]
     )
 
-    structured_llm = llm.with_structured_output(RequestAnalysis)
+    structured_llm = llm.with_structured_output(RequestAnalysis,
+                                                method="json_schema")
 
     result = structured_llm.invoke(prompt)
 

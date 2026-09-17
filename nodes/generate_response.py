@@ -1,11 +1,12 @@
 from langchain_groq import ChatGroq
 
 from nodes.prompts import RESPONSE_PROMPT
-
+import os
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0
+    model_name="qwen/qwen3.8-27b",
+    temperature=0,
+    groq_api_key=os.getenv("GROQ_API_KEY")
 )
 
 
@@ -29,3 +30,4 @@ def generate_response(state):
     return {
         "response": response.content
     }
+

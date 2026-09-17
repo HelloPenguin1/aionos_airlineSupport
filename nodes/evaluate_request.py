@@ -2,11 +2,12 @@ from langchain_groq import ChatGroq
 
 from nodes.structured_output import PolicyDecision
 from nodes.prompts import DECISION_PROMPT
-
+import os
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0
+    model_name="qwen/qwen3.8-27b",
+    temperature=0,
+    groq_api_key=os.getenv("GROQ_API_KEY")
 )
 
 
