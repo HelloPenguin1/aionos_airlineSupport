@@ -60,6 +60,11 @@ def visible_resolution(result: dict) -> dict:
     }
 
 
+def visible_policy_context(result: dict) -> str:
+    """Return the retrieved policy evidence used for the agent decision."""
+    return result.get("policy_context", "")
+
+
 def submit_message(prompt: str, pnr: str) -> None:
     st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -77,6 +82,7 @@ def submit_message(prompt: str, pnr: str) -> None:
                 "content": result.get("response")
                 or "The agent did not return a customer response.",
                 "resolution": visible_resolution(result),
+                "policy_context": visible_policy_context(result),
             }
         )
     except Exception as error:
@@ -214,6 +220,9 @@ for message in st.session_state.messages:
         if message.get("resolution"):
             with st.expander("Resolution output", expanded=True, icon=":material/fact_check:"):
                 st.json(message["resolution"], expanded=False)
+        if message.get("policy_context"):
+            with st.expander("Policy context used", icon=":material/gavel:"):
+                st.text(message["policy_context"])
         if message.get("debug_error"):
             with st.expander("Debug information", icon=":material/bug_report:"):
                 st.code(message["debug_error"], language="text")
