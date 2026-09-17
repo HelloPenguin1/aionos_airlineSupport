@@ -1,10 +1,10 @@
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 
-from prompts import RESPONSE_PROMPT
+from nodes.prompts import RESPONSE_PROMPT
 
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
     temperature=0
 )
 
