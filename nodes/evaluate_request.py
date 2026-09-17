@@ -6,9 +6,9 @@ import os
 
 llm = ChatGroq(
     model_name="openai/gpt-oss-120b",
-    temperature=0,
+    temperature=0.1,
     groq_api_key=os.getenv("GROQ_API_KEY"),
-    max_tokens=500
+    max_tokens=1200
 )
 
 
@@ -23,7 +23,8 @@ def evaluate_request(state):
     )
 
     structured_llm = llm.with_structured_output(PolicyDecision,
-                                                method="json_schema")
+                                                method="json_schema",
+                                                strict=True)
 
     result = structured_llm.invoke(prompt)
 
