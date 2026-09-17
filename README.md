@@ -5,6 +5,19 @@ customer requests, retrieve relevant policies, decide whether a request
 can be resolved automatically, execute permitted actions, and maintain
 an audit trail.
 
+## Run the reviewer UI
+
+From the project root, ensure the existing `.env` includes `GROQ_API_KEY`,
+then start the Streamlit prototype:
+
+```bash
+uv run streamlit run app.py
+```
+
+The sidebar provides the three supplied demo scenarios. The interface only
+displays state returned by the existing LangGraph workflow; it does not make
+policy or escalation decisions itself.
+
 ## Architecture
 
 The system is organized into four main layers:
