@@ -135,6 +135,12 @@ Distinguish between:
   according to the retrieved policy
 
 A request can be partially approved.
+The "decision" field MUST be exactly one of:
+- "approved"
+- "partially_approved"
+- "denied"
+- "escalate"
+
 
 IMPORTANT OUTPUT RULES:
 - Return ONLY the PolicyDecision structured output.

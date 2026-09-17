@@ -1,7 +1,11 @@
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-CHROMA_PATH = "rag/chroma_db"
+from pathlib import Path
+
+CHROMA_PATH = str(Path(__file__).resolve().parent / "chroma_db")
+
+
 COLLECTION_NAME = "service_rules"
 
 
