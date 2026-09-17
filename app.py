@@ -83,7 +83,7 @@ def submit_message(prompt: str, pnr: str) -> None:
         st.session_state.messages.append(
             {
                 "role": "assistant",
-                "content": "I’m unable to process that request right now. Please try again.",
+                "content": "I'm unable to process that request right now. Please try again.",
                 "debug_error": str(error),
             }
         )
@@ -112,6 +112,91 @@ with st.sidebar:
     if st.button("New conversation", icon=":material/add_comment:", width="stretch"):
         new_conversation()
         st.rerun()
+
+    st.divider()
+
+    # ── OUTPUT 2 – Architecture & process flow ─────────────────────────────
+    with st.expander("📐 Architecture & process flow", expanded=False):
+        st.markdown(
+            """
+**System layers**
+
+| Layer | Component |
+|---|---|
+| UI | Streamlit (`app.py`) |
+| Agent orchestration | LangGraph (`agent/workflow.py`) |
+| LLM reasoning | Groq API — Llama 3 |
+| Policy retrieval | ChromaDB + HuggingFace Sentence-Transformers |
+| Customer / booking data | SQLite (`data/customers.db`, `data/bookings.db`) |
+| Audit trail | SQLite via `nodes/record_action.py` |
+
+**Node execution order**
+```
+START
+ └─► load_customer_context
+      └─► analyze_request
+           └─► immediate_escalation_check
+                ├─► [escalation path] generate_response
+                └─► [normal path] retrieve_policy
+                     └─► evaluate_request
+                          └─► execute_or_escalate
+                               └─► generate_response
+                                    └─► record_action
+                                         └─► END
+```
+
+The escalation check is an early safety gate: legal threats and formal
+complaints skip RAG entirely and go straight to response generation.
+All other requests pass through policy retrieval and evaluation before
+the system either executes an action or escalates to a human.
+"""
+        )
+
+    # ── OUTPUT 3 – Inputs, sources & assumptions ───────────────────────────
+    with st.expander("📥 Inputs, sources & assumptions", expanded=False):
+        st.markdown(
+            """
+**Runtime inputs**
+
+| Input | Description |
+|---|---|
+| Customer PNR | Passenger Name Record selected in the sidebar |
+| User message | Free-text disruption description or support request |
+| Session ID | UUID generated per conversation; used for audit traceability |
+
+**Data sources**
+
+| Source | Content |
+|---|---|
+| `data/customers.db` | Pre-seeded SQLite table of demo passengers (name, PNR) |
+| `data/bookings.db` | Pre-seeded SQLite table of flights, routes, and booking status |
+| `rag/chroma_db/` | ChromaDB vector store of airline policy documents, built offline via `rag/ingest.py` |
+| Policy documents | Fictional airline disruption-handling policies; stored locally, not fetched from any live API |
+
+**Assumptions**
+
+- The customer and booking databases are pre-seeded demo data; no real passenger PII is used.
+- Policy documents are static — they are not updated at runtime.
+- The LLM has no access to live flight data; all booking context is read from the local SQLite database.
+- Escalation to a human agent is simulated — no real ticketing or CRM system is called.
+- A valid `GROQ_API_KEY` must be present in the local `.env` file before running the app.
+"""
+        )
+
+    # ── OUTPUT 4 – AI tools used and how ──────────────────────────────────
+    with st.expander("🤖 AI tools used & how", expanded=False):
+        st.markdown(
+            """
+| Tool | Purpose |
+|---|---|
+| **Groq API (Llama 3)** | LLM reasoning |
+| **LangGraph** | Agent orchestration |
+| **LangChain** | LLM abstraction & prompt management |
+| **HuggingFace Sentence-Transformers** | Text embeddings for RAG |
+| **ChromaDB** | Vector store for policy retrieval |
+| **Streamlit** | UI / clickable prototype |
+"""
+        )
 
 st.title("Airline Customer Resolution Agent", icon=":material/support_agent:")
 st.caption("AI-powered disruption resolution prototype")
