@@ -4,24 +4,6 @@ A local demonstration of an airline-support agent that interprets a passenger re
 
 The application uses fictional, pre-seeded customer, booking, and policy data. It does not connect to live airline, ticketing, CRM, or payment systems.
 
-## Run the application
-
-1. Create a `.env` file in the project root with a valid Groq API key:
-
-   ```env
-   GROQ_API_KEY=your_key_here
-   ```
-
-2. Install dependencies and start Streamlit:
-
-   ```bash
-   uv sync
-   uv run streamlit run app.py
-   ```
-
-3. Select a demo customer in the sidebar and submit a support request.
-
-The first run may take longer while the HuggingFace embedding model is loaded.
 
 ## Technology stack
 
