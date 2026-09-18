@@ -1,38 +1,74 @@
-# Customer Resolution Agent
+# Airline Customer Resolution Agent
 
-An agentic customer-service workflow that uses LangGraph to analyze
-customer requests, retrieve relevant policies, decide whether a request
-can be resolved automatically, execute permitted actions, and maintain
-an audit trail.
+A local demonstration of an airline-support agent that interprets a passenger request, retrieves the relevant airline policy, evaluates the request against passenger and booking context, and returns a resolution, denial, or escalation outcome.
 
-## Run the reviewer UI
+The application uses fictional, pre-seeded customer, booking, and policy data. It does not connect to live airline, ticketing, CRM, or payment systems.
 
-From the project root, ensure the existing `.env` includes `GROQ_API_KEY`,
-then start the Streamlit prototype:
+## Run the application
 
-```bash
-uv run streamlit run app.py
-```
+1. Create a `.env` file in the project root with a valid Groq API key:
 
-The sidebar provides the three supplied demo scenarios. The interface only
-displays state returned by the existing LangGraph workflow; it does not make
-policy or escalation decisions itself.
+   ```env
+   GROQ_API_KEY=your_key_here
+   ```
 
-## Architecture
+2. Install dependencies and start Streamlit:
 
-The system is organized into four main layers:
+   ```bash
+   uv sync
+   uv run streamlit run app.py
+   ```
 
-1.  **Application layer** --- Streamlit interface in `app.py`
-2.  **Agent orchestration layer** --- LangGraph workflow, state, nodes,
-    and prompts
-3.  **Tool/data layer** --- Customer and booking lookups plus customer
-    actions
-4.  **Policy/RAG layer** --- Policy ingestion, ChromaDB retrieval, and
-    policy-grounded evaluation
+3. Select a demo customer in the sidebar and submit a support request.
 
-### End-to-end flow
+The first run may take longer while the HuggingFace embedding model is loaded.
 
-``` text
+## Technology stack
+
+| Concern | Technology used |
+| --- | --- |
+| User interface | Streamlit |
+| Application language | Python 3.12+ |
+| Workflow orchestration | LangGraph |
+| LLM integration and prompting | LangChain / LangChain Core |
+| Request analysis | Groq `openai/gpt-oss-20b` |
+| Decision and response generation | Groq `openai/gpt-oss-120b` |
+| Structured LLM output | Pydantic JSON-schema models |
+| Embeddings | HuggingFace Sentence Transformers, `BAAI/bge-base-en-v1.5` |
+| Vector database | ChromaDB, persisted locally in `rag/chroma_db/` |
+| Operational data | SQLite (`data/customers.db` and `data/bookings.db`) |
+| Configuration | `python-dotenv` |
+
+## Four main components
+
+### 1. Application layer
+
+[`app.py`](app.py) is the Streamlit chat application. It loads demo customers, creates a session ID for each conversation, invokes the compiled LangGraph workflow, and displays the customer-facing response, observable decision fields, and retrieved policy context. The UI does not make policy or escalation decisions.
+
+### 2. Agent orchestration layer
+
+[`agent/workflow.py`](agent/workflow.py) builds the LangGraph `StateGraph`; [`agent/state.py`](agent/state.py) defines the shared `AgentState`; and [`nodes/`](nodes) contains the focused workflow steps and prompts. The graph carries customer context, extracted intent, policy evidence, decision fields, response, and audit record between nodes.
+
+### 3. Database layer
+
+The project uses two local SQLite databases:
+
+| Database | Contents | Access |
+| --- | --- | --- |
+| `data/customers.db` | Demo passengers, loyalty tier, contact fields, and travel history | `get_customer_by_pnr()` in [`db/queries.py`](db/queries.py) |
+| `data/bookings.db` | Demo bookings: PNR, flight, route, date, departure time, and disruption status | `get_bookings_by_pnr()` in [`db/queries.py`](db/queries.py) |
+
+[`db/init_customers.py`](db/init_customers.py) and [`db/init_bookings.py`](db/init_bookings.py) define and seed these datasets. The customer schema also defines an `audit_logs` table, but the current [`record_action`](nodes/record_action.py) node returns an audit record in graph state only; it does **not** insert it into SQLite.
+
+### 4. RAG layer
+
+The retrieval-augmented generation (RAG) layer grounds policy evaluation in locally indexed service rules. [`rag/ingest.py`](rag/ingest.py) creates policy `Document` objects, embeds them, and persists them in the Chroma collection named `service_rules`. At runtime, [`rag/retriever.py`](rag/retriever.py) loads the embedding model once per process and creates a Chroma retriever filtered to the policy categories selected during request analysis.
+
+The retrieved text is supplied as `policy_context` to the policy-decision model, whose prompt restricts policy reasoning to that context.
+
+## Workflow architecture
+
+```text
 START
   |
   v
@@ -43,451 +79,84 @@ analyze_request
   |
   v
 immediate_escalation_check
+  |\
+  | \-- legal threat / formal complaint --> generate_response
+  |                                            |
+  |                                            v
+  |                                        record_action --> END
   |
-  +------------------------------+
-  |                              |
-  | No immediate escalation      | Policy required
-  |                              |
-  |                              v
-  |                       retrieve_policy
-  |                              |
-  |                              v
-  |                       evaluate_request
-  |                              |
-  |                              v
-  |                       execute_or_escalate
-  |                              |
-  +---------------+--------------+
-                  |
-                  v
-          generate_response
-                  |
-                  v
-           record_action
-                  |
-                  v
-                 END
+  \-- all other requests --> retrieve_policy
+                                |
+                                v
+                          evaluate_request
+                                |
+                                v
+                         execute_or_escalate
+                                |
+                                v
+                          generate_response
+                                |
+                                v
+                           record_action --> END
 ```
 
-The escalation check acts as an early safety gate. Requests requiring
-immediate escalation, such as legal threats or formal complaints, can
-bypass normal automated resolution. Other requests continue through
-policy retrieval and evaluation before the system either resolves the
-request or escalates it.
+The only conditional route is after the immediate-escalation check. A request marked as a legal threat or immediate formal complaint skips RAG and policy evaluation. All other requests retrieve category-filtered policy evidence before the workflow decides whether to resolve, deny, or escalate.
 
-## Core Workflow
+## Nodes: functions and outputs
 
-### 1. Customer context
+| Node | Function | State fields it outputs |
+| --- | --- | --- |
+| `load_customer_context` | Looks up the supplied PNR in the customer and booking SQLite databases. | `pnr_valid`, `customer`, `bookings`; for a missing or unknown PNR it also returns a `response` message. |
+| `analyze_request` | Uses structured LLM output to interpret only the customer message: intent, requested actions, applicable policy categories, and legal-threat/formal-complaint status. | `intent`, `requested_action`, `rules`, `legal_threat` |
+| `immediate_escalation_check` | Applies the early safety gate for `legal_threat`. | Either `escalation_required: true`, `escalation_reason`, and `action: "escalate"`; or `escalation_required: false`. |
+| `retrieve_policy` | Retrieves Chroma documents filtered by `rules` and serializes them into policy evidence. | `policy_documents`, `policy_context` |
+| `evaluate_request` | Uses structured LLM output to assess customer data, bookings, request, and policy evidence. | `action` (`approved`, `partially_approved`, `denied`, or `escalate`), `allowed_actions`, `denied_actions`, `escalation_required`, `escalation_reason`, `source_rules` |
+| `execute_or_escalate` | Maps the policy decision to the final operational outcome. Escalation takes priority; approved and partially approved decisions resolve; all other decisions deny. | `action` (`resolve`, `escalate`, or `deny`) |
+| `generate_response` | Produces the concise customer-facing reply from the final action, decision fields, customer, and booking context. | `response` |
+| `record_action` | Creates a structured trace of the completed interaction in graph state. | `audit_record` containing `pnr`, `intent`, `action`, `escalation_required`, and `escalation_reason` |
 
-`load_customer_context` retrieves relevant customer information from the
-customer database.
+## What the RAG vector database contains
 
-Customer context can be combined with booking information so later
-decisions are made using the actual customer and reservation state
-rather than only the user's message.
+The persistent Chroma collection `service_rules` contains six fictional airline-policy documents. Each document uses `source: "Service Rules"` and a `rule` metadata field for category filtering.
 
-### 2. Request analysis
+| `rule` metadata | Policy content indexed in ChromaDB |
+| --- | --- |
+| `cancellation` | For airline-cancelled flights, choose free rebooking on the next available flight within 24 hours or a full refund. |
+| `delay` | Under three hours: ₹500 meal voucher. Over three hours: meal voucher and lounge access. Over five hours: those benefits plus hotel accommodation for delayed hours, not a full night. |
+| `refund` | Airline-caused cancellations receive a full refund within seven business days to the original payment method. |
+| `fare_difference` | Customers choosing a higher-fare rebooking option pay the difference; agents need supervisor approval to waive more than ₹1,500. |
+| `loyalty` | Gold and Platinum customers receive priority rebooking, but no compensation beyond the standard disruption policy. |
+| `escalation` | Escalate compensation beyond policy, fare-difference waivers over ₹1,500, non-airline-caused disruption exceptions, legal threats/formal complaints, and refunds to a different payment method. |
 
-`analyze_request` uses the LLM to interpret the user's request and
-determine the type of operation required.
+For a request classified with one or more rules, the retriever asks Chroma for `k = len(rules)` documents and filters candidates to those categories. When no policy category is selected, it returns an empty policy context.
 
-This separates natural-language understanding from deterministic tools
-such as database lookups and action execution.
+## Project layout
 
-### 3. Immediate escalation check
-
-`immediate_escalation_check` is an early decision gate.
-
-Examples include:
-
--   Legal threats
--   Formal complaints
--   Requests that require human intervention
--   Other cases defined as mandatory escalation conditions
-
-This prevents the agent from attempting normal automated resolution when
-escalation should happen immediately.
-
-### 4. Policy retrieval
-
-For requests that require policy-based reasoning, `retrieve_policy`
-queries the policy knowledge base.
-
-The supplied policies are ingested into ChromaDB through
-`rag/ingest.py`, while `rag/retriever.py` handles retrieval during the
-agent workflow.
-
-### 5. Request evaluation
-
-`evaluate_request` combines:
-
--   Customer context
--   Booking information
--   Retrieved policy
--   Request interpretation
-
-The result determines whether the request is permitted and what action
-should be taken.
-
-### 6. Execute or escalate
-
-`execute_or_escalate` is the action decision point.
-
-Depending on the evaluation, the system can:
-
--   Execute an allowed action
--   Escalate the request to a human
--   Avoid taking an unsupported or unauthorized action
-
-Actions are implemented through `tools/action_tools.py`.
-
-### 7. Response generation
-
-`generate_response` converts the workflow result into the final
-user-facing response.
-
-The response should reflect the actual action taken or escalation
-decision rather than independently inventing an outcome.
-
-### 8. Audit logging
-
-`record_action` records the action taken so that the workflow has an
-audit trail.
-
-This is important for customer-service systems because an agent should
-be able to explain what happened after a request was processed.
-
-## Project Structure
-
-``` text
-customer-resolution-agent/
-│
-├── app.py
-├── requirements.txt
-├── .env
-├── .env.example
-├── .gitignore
-├── README.md
-│
+```text
+.
+├── app.py                    # Streamlit interface
+├── agent/
+│   ├── state.py               # Shared LangGraph state
+│   └── workflow.py            # Graph definition and routing
+├── nodes/                     # Individual graph nodes, prompts, schemas
+├── db/
+│   ├── init_customers.py      # Customer/travel-history/audit schema and seed data
+│   ├── init_bookings.py       # Booking schema and seed data
+│   └── queries.py             # SQLite reads used by the graph
 ├── data/
 │   ├── customers.db
 │   └── bookings.db
-│
-├── db/
-│   ├── init_customers.py
-│   ├── init_bookings.py
-│   └── queries.py
-│
-├── agent/
-│   ├── graph.py
-│   ├── state.py
-│   ├── nodes.py
-│   └── prompts.py
-│
-├── tools/
-│   ├── customer_tools.py
-│   ├── booking_tools.py
-│   └── action_tools.py
-│
-├── rag/
-│   ├── ingest.py
-│   ├── retriever.py
-│   └── chroma_db/
-│
-└── outputs/
-    └── screenshots/
+└── rag/
+    ├── ingest.py              # Policy documents and Chroma ingestion
+    ├── retriever.py           # Runtime category-filtered retrieval
+    └── chroma_db/             # Persistent Chroma collection
 ```
 
-## Key Files
+## Scope and Assumptions
 
-### Application
+- All passengers, flights, and policies are local demo data.
+- The agent suggests outcomes; it does not rebook flights, issue refunds, send escalations, or contact customers.
+- A valid Groq API key is required, along with local access to the embedding model files or download source.
+- Rebuild the Chroma collection with `rag/ingest.py` if `rag/chroma_db/` is missing or needs regeneration.
 
-#### `app.py`
-
-Streamlit entry point for the application.
-
-Responsibilities:
-
--   Provides the user interface
--   Accepts customer requests
--   Starts the LangGraph workflow
--   Displays the agent's response and workflow result
-
-------------------------------------------------------------------------
-
-### Agent
-
-#### `agent/graph.py`
-
-Defines the LangGraph workflow and connects the individual nodes.
-
-It controls the execution order and conditional routing between:
-
--   PNR validation
--   Customer loading
--   Request analysis
--   Immediate escalation checking
--   Policy retrieval
--   Policy evaluation
--   Execution/escalation
--   Response generation
--   Action recording
-
-This file is the central orchestration layer.
-
-#### `agent/state.py`
-
-Defines the shared `AgentState` passed between LangGraph nodes.
-
-The state acts as the workflow's working memory and can contain
-information such as:
-
--   User request
--   Customer information
--   Booking information
--   Request classification
--   Retrieved policy context
--   Evaluation result
--   Action taken
--   Escalation status
--   Final response
-
-#### `agent/nodes.py`
-
-Contains the implementation of the individual workflow nodes.
-
-Rather than putting the entire workflow into one function, each node
-performs one focused operation. `graph.py` then composes those
-operations into the executable graph.
-
-#### `agent/prompts.py`
-
-Contains system prompts and LLM instructions.
-
-Keeping prompts separate from workflow logic makes the agent easier to
-modify and maintain without changing the graph implementation.
-
-------------------------------------------------------------------------
-
-### Tools
-
-#### `tools/customer_tools.py`
-
-Provides customer-related operations, primarily retrieving customer
-information.
-
-The tools abstract database access from the agent nodes.
-
-#### `tools/booking_tools.py`
-
-Handles booking and PNR-related operations.
-
-Typical responsibilities include:
-
--   Validating a PNR
--   Looking up booking information
--   Retrieving flight/reservation details
-
-The underlying booking data is stored in `data/bookings.db`.
-
-#### `tools/action_tools.py`
-
-Contains executable customer-service actions and escalation operations.
-
-Examples include:
-
--   Refund
--   Rebooking
--   Hotel-related actions
--   Human escalation
-
-Keeping actions in a dedicated tool module creates a boundary between
-**deciding what to do** and **actually doing it**.
-
-------------------------------------------------------------------------
-
-### Database
-
-#### `db/init_customers.py`
-
-Creates and seeds the customer SQLite database.
-
-The resulting database is stored at:
-
-``` text
-data/customers.db
-```
-
-#### `db/init_bookings.py`
-
-Creates and seeds the booking SQLite database.
-
-The resulting database is stored at:
-
-``` text
-data/bookings.db
-```
-
-#### `db/queries.py`
-
-Contains reusable database access functions.
-
-This prevents SQL/database logic from being duplicated throughout the
-agent and tool implementations.
-
-------------------------------------------------------------------------
-
-### RAG / Policy Layer
-
-#### `rag/ingest.py`
-
-Loads the supplied policy documents, processes them for retrieval, and
-stores the resulting representations in ChromaDB.
-
-This is the offline/indexing side of the policy RAG pipeline.
-
-#### `rag/retriever.py`
-
-Provides policy retrieval during runtime.
-
-The agent uses this layer when a request requires policy-based
-evaluation.
-
-#### `rag/chroma_db/`
-
-Local persistent ChromaDB storage containing the indexed policy
-knowledge base.
-
-It allows policy retrieval without rebuilding the vector store for every
-application run.
-
-------------------------------------------------------------------------
-
-### Configuration
-
-#### `.env`
-
-Stores environment-specific configuration and secrets.
-
-Secrets should not be committed to version control.
-
-#### `.env.example`
-
-Template showing which environment variables are required without
-exposing actual credentials.
-
-#### `requirements.txt`
-
-Defines the Python dependencies required to install and run the project.
-
-#### `.gitignore`
-
-Specifies files and directories that should not be committed to Git,
-such as environment files, local databases, caches, and generated
-artifacts.
-
-------------------------------------------------------------------------
-
-## Data and Control Flow
-
-``` text
-                    ┌─────────────────────┐
-                    │      Streamlit      │
-                    │       app.py        │
-                    └──────────┬──────────┘
-                               │
-                               v
-                    ┌─────────────────────┐
-                    │   LangGraph Agent   │
-                    │    agent/graph.py   │
-                    └──────────┬──────────┘
-                               │
-             ┌─────────────────┼──────────────────┐
-             │                 │                  │
-             v                 v                  v
-      Customer Tools     Booking Tools       Policy RAG
-             │                 │                  │
-             v                 v                  v
-       customers.db       bookings.db          ChromaDB
-             │                 │                  │
-             └─────────────────┼──────────────────┘
-                               │
-                               v
-                    ┌─────────────────────┐
-                    │ Request Evaluation  │
-                    │ + Action Decision   │
-                    └──────────┬──────────┘
-                               │
-                       ┌───────┴────────┐
-                       │                │
-                       v                v
-                    Execute          Escalate
-                       │                │
-                       └───────┬────────┘
-                               v
-                    ┌─────────────────────┐
-                    │ Generate Response   │
-                    └──────────┬──────────┘
-                               v
-                    ┌─────────────────────┐
-                    │   Record Action     │
-                    └─────────────────────┘
-```
-
-## Design Principles
-
-### Separation of concerns
-
-The project separates orchestration, LLM reasoning, tools, database
-access, and retrieval.
-
-This makes each component independently testable and reduces coupling.
-
-### Policy-grounded decisions
-
-The agent does not rely only on the LLM's general knowledge for
-customer-service policy decisions. Relevant policy information is
-retrieved from the local policy knowledge base and supplied to the
-evaluation step.
-
-### Deterministic tool execution
-
-Database lookups and customer actions are implemented as explicit tools
-rather than asking the LLM to directly manipulate databases or invent
-action results.
-
-### Conditional agent routing
-
-The workflow is not a linear LLM chain. LangGraph provides conditional
-routing so requests can follow different paths depending on escalation
-requirements and policy evaluation.
-
-### Auditability
-
-The final action is recorded after processing. This provides a trace of
-what the system actually did.
-
-## Technology Stack
-
-  Component                  Technology
-  -------------------------- ------------
-  UI                         Streamlit
-  Agent orchestration        LangGraph
-  LLM reasoning              LLM API
-  Policy retrieval           RAG
-  Vector database            ChromaDB
-  Customer/booking storage   SQLite
-  Backend language           Python
-
-
-
-## Architectural Summary
-
-The system combines **agent orchestration, structured customer/booking
-data, policy RAG, explicit action tools, conditional escalation, and
-audit logging** into a single customer-resolution workflow.
-
-The key architectural distinction is that the LLM is responsible for
-understanding and reasoning over the request, while external tools and
-the workflow graph control access to customer data, policies, and
-real-world actions.
+## For Demo, click the link under github repository description
